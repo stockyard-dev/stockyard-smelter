@@ -1,0 +1,8 @@
+package store
+import("database/sql";"fmt";"os";"path/filepath";"time";_ "modernc.org/sqlite")
+type DB struct{*sql.DB}
+type Transform struct{ID int64 `json:"id"`;From string `json:"from"`;To string `json:"to"`;InputSize int `json:"input_size"`;OutputSize int `json:"output_size"`;DurationMs int64 `json:"duration_ms"`;TransformedAt time.Time `json:"transformed_at"`}
+func Open(d string)(*DB,error){os.MkdirAll(d,0755);dsn:=filepath.Join(d,"smelter.db")+"?_journal_mode=WAL&_busy_timeout=5000";db,err:=sql.Open("sqlite",dsn);if err!=nil{return nil,fmt.Errorf("open: %w",err)};db.SetMaxOpenConns(1);migrate(db);return &DB{db},nil}
+func migrate(db *sql.DB){db.Exec(`CREATE TABLE IF NOT EXISTS transforms(id INTEGER PRIMARY KEY AUTOINCREMENT,from_format TEXT NOT NULL,to_format TEXT NOT NULL,input_size INTEGER DEFAULT 0,output_size INTEGER DEFAULT 0,duration_ms INTEGER DEFAULT 0,transformed_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)}
+func(db *DB)Record(from,to string,inSize,outSize int,durMs int64){db.Exec(`INSERT INTO transforms(from_format,to_format,input_size,output_size,duration_ms)VALUES(?,?,?,?,?)`,from,to,inSize,outSize,durMs)}
+func(db *DB)Stats()(map[string]interface{},error){var total int;db.QueryRow(`SELECT COUNT(*) FROM transforms`).Scan(&total);rows,_:=db.Query(`SELECT from_format,to_format,COUNT(*) FROM transforms GROUP BY from_format,to_format ORDER BY COUNT(*) DESC LIMIT 10`);defer rows.Close();pairs:=[]map[string]interface{}{};for rows.Next(){var f,t string;var c int;rows.Scan(&f,&t,&c);pairs=append(pairs,map[string]interface{}{"from":f,"to":t,"count":c})};return map[string]interface{}{"total_transforms":total,"top_pairs":pairs},nil}
